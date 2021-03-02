@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: (GPL-3.0-or-later) */
+/* Copyright (C) 2021 X-Ryl669  */
+
 // We need our own include
 #include "../include/MJPGServer.hpp"
 

@@ -1,3 +1,7 @@
+/* SPDX-License-Identifier: (GPL-3.0-or-later) */
+/* Copyright (C) 2021 X-Ryl669  */
+
+
 // We need our declaration
 #include "../include/V4L2Source.hpp"
 

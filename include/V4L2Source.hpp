@@ -1,3 +1,7 @@
+/* SPDX-License-Identifier: (GPL-3.0-or-later) */
+/* Copyright (C) 2021 X-Ryl669  */
+
+
 #pragma once
 
 // We need threading code here

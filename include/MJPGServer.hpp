@@ -1,6 +1,9 @@
+/* SPDX-License-Identifier: (GPL-3.0-or-later) */
+/* Copyright (C) 2021 X-Ryl669  */
+
+
 // The MJPGServer code for a dual source motion JPEG server
 // Right now, the code if linux only since it's using V4L2 for managing the webcam source
-// The license is GPLv3
 #pragma once
 
 // We need HTTP rest server here
