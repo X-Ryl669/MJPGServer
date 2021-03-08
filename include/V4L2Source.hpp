@@ -11,6 +11,9 @@
 // We need Utils::MemoryBlock here
 #include "Utils/MemoryBlock.hpp"
 
+// We need logs too
+#include "LogLevel.hpp"
+
 #include <linux/types.h>          /* for videodev2.h */
 #include <linux/videodev2.h>
 

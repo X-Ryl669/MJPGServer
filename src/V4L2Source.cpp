@@ -18,7 +18,7 @@ int V4L2Thread::Context::ioctl(int method, void *arg) {
         if (errno != EINTR && errno != EAGAIN && errno != ETIMEDOUT) break;
     };
 
-    fprintf(stderr, "Failure in IOCTL(%08X): %d:%s\n", method, errno, strerror(errno));
+    log(Error, "Failure in IOCTL(%08X): %d:%s", method, errno, strerror(errno));
     return -1;
 }
 
@@ -33,14 +33,7 @@ String V4L2Thread::Context::openDevice(const char * path, int preferredVideoWidt
     if(!(caps.capabilities & V4L2_CAP_VIDEO_CAPTURE)) return "Device is not a video capture";
     supportsStream = caps.capabilities & V4L2_CAP_STREAMING;
     if (!supportsStream && !(caps.capabilities & V4L2_CAP_READWRITE)) return "Device does not support streaming or read/write mode";
-/*
-    if (vd->vstd != V4L2_STD_UNKNOWN) {
-        if (ioctl(vd->fd, VIDIOC_S_STD, &vd->vstd) == -1) {
-            fprintf(stderr, "Can't set video standard: %s\n",strerror(errno));
-            goto fatal;
-        }
-    }
-*/
+
     // Enumerate all formats supported by the device
     struct v4l2_fmtdesc fmtdesc = {0};
     fmtdesc.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -69,7 +62,7 @@ String V4L2Thread::Context::openDevice(const char * path, int preferredVideoWidt
         frmsize.index++;
     }
 
-    fprintf(stdout, "Detected maximum picture size as %d x %d\n", maxWidth, maxHeight); 
+    log(Info, "Detected maximum picture size as %d x %d\n", maxWidth, maxHeight); 
 
     // Remember the highest resolution format for the picture
     Zero(highres);
@@ -100,9 +93,9 @@ String V4L2Thread::Context::openDevice(const char * path, int preferredVideoWidt
 
     // Check if the resolution was modified 
     if(format.fmt.pix.width != preferredVideoWidth || format.fmt.pix.height != preferredVideoHeight)
-        fprintf(stdout, "Resolution not supported, using w:%d, h:%d\n", format.fmt.pix.width, format.fmt.pix.height);
+        log(Warning, "Resolution not supported, using w:%d, h:%d\n", format.fmt.pix.width, format.fmt.pix.height);
     
-    fprintf(stdout, "Video set up for width:%d, height:%d, format:%c%c%c%c%s\n", format.fmt.pix.width, format.fmt.pix.height, 
+    log(Info, "Video set up for width:%d, height:%d, format:%c%c%c%c%s", format.fmt.pix.width, format.fmt.pix.height, 
                                 (char)(format.fmt.pix.pixelformat & 0x7F), (char)((format.fmt.pix.pixelformat & 0x7F00)>>8), (char)((format.fmt.pix.pixelformat & 0x7F0000)>>16), (char)((format.fmt.pix.pixelformat & 0x7F000000)>>24), 
                                 (format.fmt.pix.pixelformat & 0x80000000U) ? " - BigEndian" : " - LittleEndian");
 
@@ -153,7 +146,7 @@ String V4L2Thread::Context::switchRes(struct v4l2_format * f, bool unmapFirst)
         mem[i] = ::mmap(0, buffer.length, PROT_READ | PROT_WRITE, MAP_SHARED, (int)fd, buffer.m.offset);
         if (mem[i] == MAP_FAILED)   return String::Print("Memory mapping of the buffer %d failed", i);
 
-        if (!unmapFirst) fprintf(stdout, "Buffer %d (len: %u bytes) mapped at %p\n", i, buffer.length, mem[i]);
+        if (!unmapFirst) log(Debug, "Buffer %d (len: %u bytes) mapped at %p", i, buffer.length, mem[i]);
     }
 
     // Queue them now
@@ -174,7 +167,7 @@ bool V4L2Thread::Context::switchToFullRes()
     memcpy(&f, &highres, sizeof(f));
     String ret = switchRes(&f);
     if (ret) {
-        fprintf(stderr, "Error while switching resolution: %s\n", (const char*)ret);
+        log(Error, "Error while switching resolution: %s", (const char*)ret);
         return false;
     }
     return true;
@@ -186,7 +179,7 @@ bool V4L2Thread::Context::switchToLowRes()
     memcpy(&f, &format, sizeof(f));
     String ret = switchRes(&f);
     if (ret) {
-        fprintf(stderr, "Error while switching resolution: %s\n", (const char*)ret);
+        log(Error, "Error while switching resolution: %s", (const char*)ret);
         return false;
     }
     return true;
@@ -200,7 +193,7 @@ bool V4L2Thread::Context::startStreaming()
     int type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     int ret = ioctl(VIDIOC_STREAMON, &type);
     if (ret) {
-        fprintf(stderr, "Can't start stream: %d (errno: %d)\n", ret, errno);
+        log(Error, "Can't start stream: %d (errno: %d)", ret, errno);
         return false;
     }
     state = On;
@@ -214,7 +207,7 @@ bool V4L2Thread::Context::stopStreaming()
     int type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     int ret = ioctl(VIDIOC_STREAMOFF, &type);
     if (ret) {
-        fprintf(stderr, "Can't start stream: %d (errno: %d)\n", ret, errno);
+        log(Error, "Can't start stream: %d (errno: %d)", ret, errno);
         return false;
     }
     state = Off;
@@ -233,12 +226,12 @@ bool V4L2Thread::Context::eventLoop()
         switch (ev.type) {
         // End of stream should stop streaming thread
         case V4L2_EVENT_EOS:
-            fprintf(stdout, "End of stream event\n");
+            log(Info, "End of stream event");
             return false;
         // React on source change ()
         case V4L2_EVENT_SOURCE_CHANGE:
             if (ev.u.src_change.changes & V4L2_EVENT_SRC_CH_RESOLUTION) {
-                fprintf(stdout, "Source changed event\n");
+                log(Info, "Source changed event");
                 // TODO, should enqueue a frame grab event here
                 return false;
             }

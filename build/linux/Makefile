@@ -1,6 +1,7 @@
 CXXSOURCES = \
     MJPGServer.cpp \
     V4L2Source.cpp \
+    LogLevel.cpp \
 
 CPCXXSOURCES = \
     Threading/Threads.cpp \
