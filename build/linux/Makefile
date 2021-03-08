@@ -42,11 +42,11 @@ CXXFLAGS += -O2
 CFLAGS += -O2
 endif
 
-CXXFLAGS += -pthread
-CFLAGS += -pthread
+CXXFLAGS += -pthread -march=native -mtune=native
+CFLAGS += -pthread -march=native -mtune=native
 
 INCPATH = -I../../ClassPath/include
-LDFLAGS = -pthread -lrt -ldl -lbfd
+LDFLAGS = -pthread -lrt -ldl
 
 # Don't touch anything below this line
 OBJ = $(notdir $(CXXSOURCES:.cpp=.o)) $(notdir $(CSOURCES:.c=.o)) $(addprefix ClassPath/, $(CPCXXSOURCES:.cpp=.o)) $(addprefix ClassPath/, $(CPCSOURCES:.c=.o))
