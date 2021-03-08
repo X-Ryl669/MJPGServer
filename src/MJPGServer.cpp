@@ -7,6 +7,7 @@
 
 // We need arguments parser for the command line interface
 #include "Platform/Arguments.hpp"
+#include "Platform/Platform.hpp"
 // We need file function too
 #include "File/File.hpp"
 
@@ -49,6 +50,15 @@ int main(int argc, const char ** argv)
     String error = Arguments::Core::parse(argc, argv);
     if (error) return log(Error, "%s", (const char*)error);
 
+    if (daemonize) {
+        bool parent = false;
+        if (!Platform::daemonize("/var/run/mjpgsrv.pid", "mjpgsrv", parent))
+            return log(Error, "Can't daemonize");
+        if (parent) _exit(0);
+
+        // Now we are the child daemon, we'll need to drop priviledges ASAP
+    }
+
     MJPGServer srv;
     error = srv.startV4L2Device(devPath, lowResWidth, lowResHeight);
     if (error) return log(Error, "%s\n", (const char*)error);
@@ -56,6 +66,7 @@ int main(int argc, const char ** argv)
     error = srv.startServer((uint16)min(port, 65535U));
     if (error) return log(Error, "%s\n", (const char*)error);
 
+    Platform::dropPrivileges(); // We don't need any priviledge anymore here, since we have opened the server socket and camera device already
     while (!exitRequired && srv.loop()) {}
 
     srv.stopServer();

@@ -102,42 +102,42 @@ namespace Platform
         This does not rely on remembering the argv[0] since this does not exists on Windows.
         This returns the name of executable used to run the process */
     const char * getProcessName();
-	
-	inline bool isUnderDebugger()
-	{
+    
+    inline bool isUnderDebugger()
+    {
 #if (DEBUG==1)
     #ifdef _WIN32
-		return (IsDebuggerPresent() == TRUE);
+        return (IsDebuggerPresent() == TRUE);
     #elif defined(_LINUX)
-		static signed char testResult = 0;
-		if (testResult == 0)
-		{
-			testResult = (char) ptrace (PT_TRACE_ME, 0, 0, 0);
-			if (testResult >= 0)
-			{
-				ptrace (PT_DETACH, 0, (caddr_t) 1, 0);
-				testResult = 1;
-			}
-		}
+        static signed char testResult = 0;
+        if (testResult == 0)
+        {
+            testResult = (char) ptrace (PT_TRACE_ME, 0, 0, 0);
+            if (testResult >= 0)
+            {
+                ptrace (PT_DETACH, 0, (caddr_t) 1, 0);
+                testResult = 1;
+            }
+        }
         return (testResult < 0);
     #elif defined (_MAC)
-		static signed char testResult = 0;
-		if (testResult == 0)
-		{
-			struct kinfo_proc info;
-			int m[] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid() };
-			size_t sz = sizeof (info);
-			sysctl (m, 4, &info, &sz, 0, 0);
-			testResult = ((info.kp_proc.p_flag & P_TRACED) != 0) ? 1 : -1;
-		}
+        static signed char testResult = 0;
+        if (testResult == 0)
+        {
+            struct kinfo_proc info;
+            int m[] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid() };
+            size_t sz = sizeof (info);
+            sysctl (m, 4, &info, &sz, 0, 0);
+            testResult = ((info.kp_proc.p_flag & P_TRACED) != 0) ? 1 : -1;
+        }
 
-		return testResult > 0;
+        return testResult > 0;
     #elif defined (NEXIO)
-	    return true;
-	#endif
+        return true;
+    #endif
 #endif
-	    return false;
-	}
+        return false;
+    }
     
     /** This is used to trigger the debugger when called */
     inline void breakUnderDebugger()
