@@ -100,29 +100,55 @@ String V4L2Thread::Context::openDevice(const char * path, int preferredVideoWidt
                                 (format.fmt.pix.pixelformat & 0x80000000U) ? " - BigEndian" : " - LittleEndian");
 
     return switchRes(&format, false);
+}
 
+String V4L2Thread::Context::closeDevice()
+{
+    String ret;
+    if (!stopStreaming()) ret = "Stop streaming failed for device";
+
+    // Unmap the buffers now
+    String uret = unmapBuffers();
+    
+    // Then close the device
+    fd.Mutate(-1);
+
+    // Clean all remnant data
+    state = Off;
+    Zero(mem);
+    if (ret) return ret;
+    if (uret) return uret;
+    return "";    
+}
+
+String V4L2Thread::Context::unmapBuffers()
+{
+    // Need to find the buffer size to unmap it
+    Zero(buffer);
+    buffer.index = 0;
+    buffer.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    buffer.memory = V4L2_MEMORY_MMAP;
+    if (ioctl(VIDIOC_QUERYBUF, &buffer) < 0) return String::Print("Can't query buffer %d", 0);
+
+    for (int i = 0; i < BuffersCount; i++) {
+        if (::munmap(mem[i], buffer.length)) return String::Print("Can't unmap buffer %d", i);
+    }
+
+    Zero(requestBuffers);
+    requestBuffers.count = 0;
+    requestBuffers.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    requestBuffers.memory = V4L2_MEMORY_MMAP;
+
+    if (ioctl(VIDIOC_REQBUFS, &requestBuffers) < 0) return "Can't free video buffers";
+
+    return "";
 }
 
 String V4L2Thread::Context::switchRes(struct v4l2_format * f, bool unmapFirst)
 {
     if (unmapFirst) {
-        // Need to find the buffer size to unmap it
-        Zero(buffer);
-        buffer.index = 0;
-        buffer.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-        buffer.memory = V4L2_MEMORY_MMAP;
-        if (ioctl(VIDIOC_QUERYBUF, &buffer) < 0) return String::Print("Can't query buffer %d", 0);
-
-        for (int i = 0; i < BuffersCount; i++) {
-            if (::munmap(mem[i], buffer.length)) return String::Print("Can't unmap buffer %d", i);
-        }
-
-        Zero(requestBuffers);
-        requestBuffers.count = 0;
-        requestBuffers.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-        requestBuffers.memory = V4L2_MEMORY_MMAP;
-
-        if (ioctl(VIDIOC_REQBUFS, &requestBuffers) < 0)  return "Can't free video buffers";
+        String ret = unmapBuffers();
+        if (ret) return ret;
     }
 
     int ret = ioctl(VIDIOC_S_FMT, f);

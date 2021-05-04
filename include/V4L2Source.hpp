@@ -70,6 +70,8 @@ public:
 
         // Open the device and extract all useful informations
         String  openDevice(const char * path, int preferredVideoWidth = 640, int preferredVideoHeight = 480);
+        // Close the device (used to release memory and the file descriptor so device can be unplugged)
+        String  closeDevice();
         // Start the stream
         bool    startStreaming();
         // Stop the stream
@@ -90,7 +92,9 @@ public:
         // Helper methods
     private:
         // Switch resolution (internal implementation)
-        String switchRes(struct v4l2_format * f, bool unmapFirst = true);
+        String  switchRes(struct v4l2_format * f, bool unmapFirst = true);
+        // Unmap the buffer
+        String  unmapBuffers();
 
     public:
         Context() : fd(-1), supportsStream(false), state(Off) {}
@@ -125,10 +129,14 @@ public:
 
     String captureFullResPicture(Utils::MemoryBlock & block);
 
+    String stopV4L2Device() {
+        return context.closeDevice();
+    }
+
     // Members
 private:
-    Context             context;
-    PictureSink       & sink;
-    Threading::Event    captureFullRes, captureDone;
+    Context                 context;
+    PictureSink       &     sink;
+    Threading::Event        captureFullRes, captureDone;
     Utils::MemoryBlock *    fullResPic;
 };

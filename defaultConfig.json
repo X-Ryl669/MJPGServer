@@ -1,0 +1,10 @@
+{
+  "port": 8080,
+  "device": "/dev/video0",
+  "daemonize": false,
+  "logLevel": 0,
+  "lowResWidth": 640,
+  "lowResHeight": 480,
+  "closeDeviceTimeoutSec": 0,
+  "securityToken": "verySecretToken" 
+}

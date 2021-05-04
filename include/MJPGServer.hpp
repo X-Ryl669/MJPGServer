@@ -21,6 +21,23 @@
 // Let's inject the string class we are using
 typedef Strings::FastString String;
 
+
+// Should match the keys in the JSON configuration file
+struct Configuration
+{
+    unsigned int    port; 
+    String          device;
+    bool            daemonize;
+    unsigned int    lowResWidth;
+    unsigned int    lowResHeight;
+    unsigned int    closeDevTimeoutSec;
+    String          securityToken;           
+      
+    Configuration() : port(8080), device("/dev/video0"), daemonize(false), lowResWidth(640), lowResHeight(480), closeDevTimeoutSec(0), securityToken("") {}
+
+    String fromJSON(const String & path);
+};
+
 struct MJPGServer : public V4L2Thread::PictureSink
 {
     typedef Network::Socket::BaseSocket Socket;
@@ -85,7 +102,6 @@ struct MJPGServer : public V4L2Thread::PictureSink
     Container::NotConstructible<ClientSocket>::IndexList clients;
 
 
-//    NotConstructible::IndexList<
     Stream::InputStream * App(Network::Server::URLRouting::Comm & comm)
     {
         if (comm.method != "GET") return 0;
