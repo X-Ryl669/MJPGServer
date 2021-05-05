@@ -47,4 +47,6 @@ If you need to use this software commercially, feel free to send me an email, I'
 
 If you need some documentation to use it, feel free to read this [blog item](https://blog.cyril.by/en/3d-printers/easiest-way-to-make-timelapse-of-your-3d-prints)
 
+Documentation for building and testing it is [here](https://blog.cyril.by/en/documentation/documentation-for-mjpgserver)
+
 
