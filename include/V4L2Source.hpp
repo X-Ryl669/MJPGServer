@@ -130,8 +130,12 @@ public:
     String captureFullResPicture(Utils::MemoryBlock & block);
 
     String stopV4L2Device() {
+        // First stop the thread
+        destroyThread();
         return context.closeDevice();
     }
+ 
+    bool isOpened() const { return context.fd != -1; }
 
     // Members
 private:

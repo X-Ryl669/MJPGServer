@@ -27,6 +27,7 @@ void asyncProcess(int signal)
 
 
 int logLevel = LogLevel::Info;
+Configuration config;
 
 String Configuration::fromJSON(const String & path) 
 {
@@ -71,17 +72,16 @@ int main(int argc, const char ** argv)
 {
     signal(SIGINT, asyncProcess);
 
-    Configuration config;
     String cfgFile;
 
     // Options
-    Arguments::declare(config.daemonize,           "Daemonize the server", "daemon", "d");
-    Arguments::declare(config.port,                "The port to listen on", "port", "p");
+    Arguments::declare(config.daemonize,          "Daemonize the server", "daemon", "d");
+    Arguments::declare(config.port,               "The port to listen on", "port", "p");
     Arguments::declare(config.device,             "Path to the device to use", "camera", "c");
-    Arguments::declare(logLevel,            "Log level (-1: debug, 0: Info, 2: Error, 3: Silent)", "loglevel", "v");
-    Arguments::declare(config.lowResWidth,         "The low resolution picture width (default 640px)", "width", "w");
-    Arguments::declare(config.lowResHeight,        "The low resolution picture height (default 480px)", "height", "t");
-    Arguments::declare(cfgFile,             "Configuration file path (default none)", "cfg", "j"); 
+    Arguments::declare(logLevel,                  "Log level (-1: debug, 0: Info, 2: Error, 3: Silent)", "loglevel", "v");
+    Arguments::declare(config.lowResWidth,        "The low resolution picture width (default 640px)", "width", "w");
+    Arguments::declare(config.lowResHeight,       "The low resolution picture height (default 480px)", "height", "t");
+    Arguments::declare(cfgFile,                   "Configuration file path (default none)", "cfg", "j"); 
    
 
     fprintf(stdout, "Thank you for using MJPGServer\n");
@@ -105,10 +105,10 @@ int main(int argc, const char ** argv)
 
 
     MJPGServer srv;
-    error = srv.startV4L2Device(config.device, config.lowResWidth, config.lowResHeight);
+    error = srv.startV4L2Device();
     if (error) return log(Error, "%s\n", (const char*)error);
 
-    error = srv.startServer((uint16)min(config.port, 65535U));
+    error = srv.startServer();
     if (error) return log(Error, "%s\n", (const char*)error);
 
     Platform::dropPrivileges(); // We don't need any priviledge anymore here, since we have opened the server socket and camera device already

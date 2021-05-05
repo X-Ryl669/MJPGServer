@@ -5,6 +5,6 @@
   "logLevel": 0,
   "lowResWidth": 640,
   "lowResHeight": 480,
-  "closeDeviceTimeoutSec": 0,
+  "closeDeviceTimeoutSec": 15,
   "securityToken": "verySecretToken" 
 }

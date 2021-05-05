@@ -38,6 +38,8 @@ struct Configuration
     String fromJSON(const String & path);
 };
 
+extern Configuration config;
+
 struct MJPGServer : public V4L2Thread::PictureSink
 {
     typedef Network::Socket::BaseSocket Socket;
@@ -95,31 +97,56 @@ struct MJPGServer : public V4L2Thread::PictureSink
     };
 
     V4L2Thread v4l2Thread;
+    
 
     // The lock protecting the client list
     Threading::FastLock         lock;
     // The list of clients to send JPEG stream to
     Container::NotConstructible<ClientSocket>::IndexList clients;
 
+    bool FilterAccess(Network::Server::URLRouting::Comm & comm, bool needSource = true)
+    {
+        if (comm.method != "GET") return comm.sendError("Bad method", Protocol::HTTP::BadMethod) != 0;
+        if (config.securityToken) 
+        {
+            String * token = comm.headers.getValue("token");
+            if (!token || *token != config.securityToken) return comm.sendError("Unauthorized", Protocol::HTTP::Unauthorized) != 0;
+        }
+
+        if (needSource && config.closeDevTimeoutSec > 0 && !v4l2Thread.isOpened()) 
+        {
+            log(Info, "Starting V4L2 device");
+            String ret = startV4L2Device();
+            if (ret) 
+            { 
+                log(Error, (const char*)ret); 
+                return comm.sendError("Internal server error", Protocol::HTTP::InternalServerError) != 0; 
+            }
+            return heartbeat();
+        }
+        return true;
+    }
+
 
     Stream::InputStream * App(Network::Server::URLRouting::Comm & comm)
     {
-        if (comm.method != "GET") return 0;
+        if (!FilterAccess(comm, false)) return 0;
+        String tokenURL = config.securityToken ? "?token=" + config.securityToken : String();
         String baseURL = routing.getBaseURL();
 
         comm.returnText = String::Print("<!doctype html>"
         "<html><body>"
         "<h1>MJPEG Streamer</h1>"
         "<div>URL list for this server:</div>"
-        "<ul><li><strong>Small resolution mjpeg stream: </strong>%s/mjpg</li>"
-        "<li><strong>Full resolution picture: </strong>%s/full_res</li></ul>"
+        "<ul><li><strong>Small resolution mjpeg stream: </strong>%s/mjpg%s</li>"
+        "<li><strong>Full resolution picture: </strong>%s/full_res%s</li></ul>"
         "<h2>Demo below</h2>"
-        "<div><img src='/mjpg'></div>"
+        "<div><img src='/mjpg%s'></div>"
         "<div><button id='capt'>Full resolution</button></div>"
         "<div><img id='fr'></div>"
         "<script>var button = document.querySelector('#capt'), pic = document.querySelector('#fr');"
-        "button.addEventListener('click', function(e) { e.preventDefault(); pic.src = '/full_res?time='+(new Date()).getTime(); });</script>"
-        "</body></html>", (const char*)baseURL, (const char*)baseURL);
+        "button.addEventListener('click', function(e) { e.preventDefault(); pic.src = '/full_res?time='+(new Date()).getTime()+'&%s'; });</script>"
+        "</body></html>", (const char*)baseURL, (const char*)tokenURL, (const char*)baseURL, (const char*)tokenURL, (const char*)tokenURL, (const char*)tokenURL + 1);
 
         return 0;
     }
@@ -128,13 +155,14 @@ struct MJPGServer : public V4L2Thread::PictureSink
 
     Stream::InputStream * FullResJPEG(Network::Server::URLRouting::Comm & comm)
     {
-        if (comm.method != "GET") return 0;
+        if (!FilterAccess(comm)) return 0;
 
         // Fetch full resolution image here
         Utils::MemoryBlock pic;
         String ret = v4l2Thread.captureFullResPicture(pic);
         if (ret) return comm.sendError(ret, Protocol::HTTP::InternalServerError);
 
+        heartbeat();
         comm.addAnswerHeader("Content-Type", "image/jpeg");
         uint64 bufSize = pic.getSize();
         return new Stream::MemoryBlockStream(pic.Forget(), bufSize, true); 
@@ -142,6 +170,7 @@ struct MJPGServer : public V4L2Thread::PictureSink
 
     Stream::InputStream * MotionJPEG(Network::Server::URLRouting::Comm & comm)
     {
+        if (!FilterAccess(comm)) return 0;
         // Capture the socket to return the MJPEG stream
         Socket * clientSocket = const_cast<Socket*>(comm.context.client);
         if (!clientSocket) return comm.sendError("Bad state", Protocol::HTTP::InternalServerError);
@@ -155,31 +184,45 @@ struct MJPGServer : public V4L2Thread::PictureSink
         size_t clientSize = clients.getSize();
         clients.Append(new ClientSocket(clientSocket));
         // If no client previously, let's create the thread to handle them
-        if (!clientSize) v4l2Thread.createThread();
+        if (!clientSize && !v4l2Thread.isRunning()) v4l2Thread.createThread();
         comm.statusCode = Protocol::HTTP::CapturedSocket; 
         return 0;
     }
 
     typedef Network::Server::URLRouting URLRouting;
     URLRouting routing;
+    uint32     lastSeenTime;
 
 
-    String startServer(uint16 port)
+    String startServer()
     {
+        uint16 port = (uint16)min(config.port, 65535U);
         if (!routing.registerRoute("full_res",  MakeDel(URLRouting::URLTrigger, MJPGServer, FullResJPEG, *this))) return "Can't register route: full_res";
         if (!routing.registerRoute("mjpg",      MakeDel(URLRouting::URLTrigger, MJPGServer, MotionJPEG, *this))) return "Can't register route: mjpg";
         routing.registerDefaultRoute(MakeDel(URLRouting::URLTrigger, MJPGServer, App, *this));
 
         if (!routing.startServer(port)) return String::Print("Failed to start server on port: %u", port);
-        fprintf(stdout, "Server started on: %s\n", (const char*)routing.getBaseURL());
+        String url = routing.getBaseURL();
+        if (config.securityToken) url += "?token=" + config.securityToken;
+        heartbeat();
+        fprintf(stdout, "Server started on: %s\n", (const char*)url);
         return "";
     }
-    bool loop() { return routing.loop(); }
+    bool loop() 
+    { 
+        if (config.closeDevTimeoutSec && v4l2Thread.isOpened() && (uint32)time(NULL) > (lastSeenTime + config.closeDevTimeoutSec)) 
+        {
+            log(Info, "Closing the device after %us of inactivity", config.closeDevTimeoutSec);
+            String ret = v4l2Thread.stopV4L2Device();
+            if (ret) log(Error, (const char*)ret);   
+        }
+        return routing.loop(); 
+    }
 
     bool stopServer() { return routing.stopServer(); }
 
 
-    String startV4L2Device(const char * path, int preferredVideoWidth = 640, int preferredVideoHeight = 480) { return v4l2Thread.startV4L2Device(path, preferredVideoWidth, preferredVideoHeight); }
+    String startV4L2Device() { return v4l2Thread.startV4L2Device(config.device, config.lowResWidth, config.lowResHeight); }
 
     // PictureSink interface
 private:
@@ -190,8 +233,11 @@ private:
             if (!clients.getElementAtUncheckedPosition(i - 1)->pictureReceived(data, len))
                 clients.Remove(i - 1); // Iterating from last to first allows to remove cleanly
         }
-        return clients.getSize() > 0;
+        if (clients.getSize()) return heartbeat();
+        return false;
     }
+
+    bool heartbeat() { lastSeenTime = (uint32)time(NULL); return true; }
 
     // Construction and destruction
 public:
