@@ -22,7 +22,7 @@ int V4L2Thread::Context::ioctl(int method, void *arg) {
     return -1;
 }
 
-String V4L2Thread::Context::openDevice(const char * path, int preferredVideoWidth, int preferredVideoHeight)
+String V4L2Thread::Context::openDevice(const char * path, int preferredVideoWidth, int preferredVideoHeight, int picWidth, int picHeight, unsigned   stabPicCount)
 {
     fd.Mutate(::open(path, O_RDWR));
     if (fd == -1) return String::Print("Can't open: %s", path);
@@ -49,20 +49,33 @@ String V4L2Thread::Context::openDevice(const char * path, int preferredVideoWidt
     struct v4l2_frmsizeenum frmsize = {0};
     frmsize.pixel_format = fmtdesc.pixelformat;
     int maxWidth = 0, maxHeight = 0;
-    while (::ioctl(fd, VIDIOC_ENUM_FRAMESIZES, &frmsize) == 0)
-    {
-        if (frmsize.type == V4L2_FRMSIZE_TYPE_DISCRETE)
-        {
+    bool foundExpectedPicSize = false;
+    while (::ioctl(fd, VIDIOC_ENUM_FRAMESIZES, &frmsize) == 0) {
+        if (frmsize.type == V4L2_FRMSIZE_TYPE_DISCRETE) {
             if (frmsize.discrete.width > maxWidth) { maxWidth = frmsize.discrete.width; maxHeight = frmsize.discrete.height; }
+            if (picWidth && !foundExpectedPicSize && picWidth == frmsize.discrete.width && picHeight == frmsize.discrete.height)
+                foundExpectedPicSize = true;
+
+            log(Debug, "Enumerated video format: %d x %d for MJPG", frmsize.discrete.width, frmsize.discrete.height);
         }
         else {
             if (frmsize.stepwise.max_width > maxWidth) { maxWidth = frmsize.stepwise.max_width; maxHeight = frmsize.stepwise.max_height; }
+            if (picWidth && !foundExpectedPicSize && picWidth == frmsize.stepwise.max_width && picHeight == frmsize.stepwise.max_height)
+                foundExpectedPicSize = true;
+
+            log(Debug, "Enumerated video format: %d x %d for MJPG", frmsize.stepwise.max_width, frmsize.stepwise.max_height);
         }
+
 
         frmsize.index++;
     }
 
-    log(Info, "Detected maximum picture size as %d x %d\n", maxWidth, maxHeight); 
+    log(Info, "Detected maximum picture size as %d x %d", maxWidth, maxHeight); 
+    if (foundExpectedPicSize) {
+        maxWidth = picWidth;
+        maxHeight = picHeight;
+        log(Info, "Using full resolution picture size as %d x %d", maxWidth, maxHeight); 
+    }
 
     // Remember the highest resolution format for the picture
     Zero(highres);
@@ -93,12 +106,13 @@ String V4L2Thread::Context::openDevice(const char * path, int preferredVideoWidt
 
     // Check if the resolution was modified 
     if(format.fmt.pix.width != preferredVideoWidth || format.fmt.pix.height != preferredVideoHeight)
-        log(Warning, "Resolution not supported, using w:%d, h:%d\n", format.fmt.pix.width, format.fmt.pix.height);
+        log(Warning, "Resolution not supported, using w:%d, h:%d", format.fmt.pix.width, format.fmt.pix.height);
     
     log(Info, "Video set up for width:%d, height:%d, format:%c%c%c%c%s", format.fmt.pix.width, format.fmt.pix.height, 
                                 (char)(format.fmt.pix.pixelformat & 0x7F), (char)((format.fmt.pix.pixelformat & 0x7F00)>>8), (char)((format.fmt.pix.pixelformat & 0x7F0000)>>16), (char)((format.fmt.pix.pixelformat & 0x7F000000)>>24), 
                                 (format.fmt.pix.pixelformat & 0x80000000U) ? " - BigEndian" : " - LittleEndian");
 
+    framesToDrop = stabPicCount;
     return switchRes(&format, false);
 }
 
@@ -310,6 +324,32 @@ String V4L2Thread::captureFullResPicture(Utils::MemoryBlock & block)
     return ""; // Done
 }
 
+static bool getJPEGPicSize(uint8 * data, size_t size, uint16 & width, uint16 & height)
+{
+    if(data[0] != 0xFF || data[1] != 0xD8) return false;
+    size_t off = 0;
+    while (off < size) {
+        while(off < size && data[off] == 0xff) off++;
+        if (off + 7 >= size) return false;
+        uint8 marker = data[off]; off++;
+
+        if(marker == 0xd8) continue;    // SOI
+        if(marker == 0xd9) break;       // EOI
+        if(0xd0 <= marker && marker <= 0xd7) continue;
+        if(marker == 0x01) continue;    // TEM
+
+        unsigned len = (data[off]<<8) | data[off+1];  off+=2;  
+
+        if(marker == 0xc0) {
+            height = (data[off+1]<<8) | data[off+2];
+            width = (data[off+3]<<8) | data[off+4];
+            return true;
+        }
+        off += len-2;
+    }
+    return false;
+} 
+
 bool V4L2Thread::fetchFullRes() 
 {
     bool running = context.state == On;
@@ -318,20 +358,52 @@ bool V4L2Thread::fetchFullRes()
     if (!context.switchToFullRes()) return false;
     // Start the stream here
     if (!context.startStreaming()) return false;
+    log(Info, "Switched to highres");
 
     // Capture a single frame
     uint8 * ptr = 0; size_t size = 0;
-    if (!context.fetchFrame(ptr, size)) return false;
+    // Some V4L2 source leaks previous data in the new format (it's a bug)
+    int retry = 10; 
+    uint16 width = 0, height = 0;
+    do {
+        if (!context.fetchFrame(ptr, size)) return false;
+        // Try to parse the data as a JPEG frame
+        if (getJPEGPicSize(ptr, size, width, height) && width == context.highres.fmt.pix.width) break;
+        log(Debug, "(FR) Got buffer with JPEG picture of %u x %u (retry: %d)", width, height, retry);
+        if (!context.returnFrame()) return false;
+    } while(--retry);
+    // No MJPG frame in the previous picture, so let's break here
+    if (!retry) return false;
+
+    // Then drop as many frames as requested
+    for (unsigned i = 0; i < context.framesToDrop; i++) {
+        if (!context.returnFrame()) return false;
+        if (!context.fetchFrame(ptr, size)) return false;
+    }
+
     if (!fullResPic->ensureSize(size, true)) return false;
     memcpy(fullResPic->getBuffer(), ptr, size);
 
     // Stop full res picture fetching now
- //   if (!context.returnFrame()) return false;
+    if (!context.returnFrame()) return false;
     if (!context.stopStreaming()) return false;
 
     // Switch back to low res now
     if (!context.switchToLowRes()) return false;
-    if (running && !context.startStreaming()) return false;
+    if (running) {
+        if (!context.startStreaming()) return false;
+
+        // Fix for buggy V4L2 source requiring purging the buffers
+        bool foundSmallFrame = false; width = 0; height = 0;
+        while(!foundSmallFrame) {
+            if (!context.fetchFrame(ptr, size)) return false;
+            // Wait until we get small frame
+            if (getJPEGPicSize(ptr, size, width, height) && width == context.format.fmt.pix.width) foundSmallFrame = true;     
+            log(Debug, "(LR) Got buffer with JPEG picture of %u x %u", width, height);
+            if (!context.returnFrame()) return false;
+        }
+        log(Info, "Switched back to lowres");
+    }
 
     return true;
 }

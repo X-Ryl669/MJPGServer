@@ -5,6 +5,9 @@
   "logLevel": 0,
   "lowResWidth": 640,
   "lowResHeight": 480,
+  "highResWidth": 1920,
+  "highResHeight": 1080,
+  "stabPicCount": 0,
   "closeDeviceTimeoutSec": 15,
   "securityToken": "verySecretToken" 
 }

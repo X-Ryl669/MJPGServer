@@ -15,6 +15,9 @@ The available keys are the following:
 | logLevel              | -1, 0, 1, 2, 3                      | -1: debug, 0: info, 1: warning, 2: error, 3: silent           | 0             |
 | lowResWidth           | unsigned integer in pixels          | The row size of the preview (low resolution) video stream     | 640           |
 | lowResHeight          | unsigned integer in pixels          | The column size of the preview (low resolution) video stream  | 480           |
+| highResWidth          | unsigned integer in pixels          | The row size of the full resolution picture                   | max detected  |
+| highResHeight         | unsigned integer in pixels          | The column size of the full resolution picture                | max detected  |
+| stabPicCount          | unsigned integer in frames          | The number of unstable frames to drop when switching res      | 0             | 
 | securityToken         | string                              | If given, access to the stream will require this secret token | *empty*       |
 
 ## Interactions between the configuration keys

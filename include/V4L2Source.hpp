@@ -55,6 +55,8 @@ public:
         bool supportsStream; 
         /** The streaming state */
         State state;
+        /** The number of pictures to drop while switching resolution */
+        unsigned framesToDrop;
 
         // Interface
     public:
@@ -69,7 +71,7 @@ public:
  //       int resetControl (int control);
 
         // Open the device and extract all useful informations
-        String  openDevice(const char * path, int preferredVideoWidth = 640, int preferredVideoHeight = 480);
+        String  openDevice(const char * path, int preferredVideoWidth = 640, int preferredVideoHeight = 480, int picWidth = 0, int picHeight = 0, unsigned stabPicCount = 0);
         // Close the device (used to release memory and the file descriptor so device can be unplugged)
         String  closeDevice();
         // Start the stream
@@ -97,7 +99,7 @@ public:
         String  unmapBuffers();
 
     public:
-        Context() : fd(-1), supportsStream(false), state(Off) {}
+        Context() : fd(-1), supportsStream(false), state(Off), framesToDrop(0) {}
     };
 
     /** The receiving interface */
@@ -123,8 +125,8 @@ public:
         destroyThread();
     }
 
-    String startV4L2Device(const char * path, int preferredVideoWidth = 640, int preferredVideoHeight = 480) {
-        return context.openDevice(path, preferredVideoWidth, preferredVideoHeight);
+    String startV4L2Device(const char * path, int preferredVideoWidth = 640, int preferredVideoHeight = 480, int picWidth = 0, int picHeight = 0, unsigned stabPicCount = 0) {
+        return context.openDevice(path, preferredVideoWidth, preferredVideoHeight, picWidth, picHeight, stabPicCount);
     }
 
     String captureFullResPicture(Utils::MemoryBlock & block);
@@ -136,6 +138,11 @@ public:
     }
  
     bool isOpened() const { return context.fd != -1; }
+
+    int getLowResWidth()  const { return context.format.fmt.pix.width; }
+    int getLowResHeight() const { return context.format.fmt.pix.height; }
+    int getHighResWidth() const { return context.highres.fmt.pix.width; }
+    int getHighResHeight() const { return context.highres.fmt.pix.height; }
 
     // Members
 private:

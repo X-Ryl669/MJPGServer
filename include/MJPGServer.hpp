@@ -30,10 +30,13 @@ struct Configuration
     bool            daemonize;
     unsigned int    lowResWidth;
     unsigned int    lowResHeight;
+    unsigned int    highResWidth;
+    unsigned int    highResHeight;
+    unsigned int    stabPicCount;
     unsigned int    closeDevTimeoutSec;
     String          securityToken;           
       
-    Configuration() : port(8080), device("/dev/video0"), daemonize(false), lowResWidth(640), lowResHeight(480), closeDevTimeoutSec(0), securityToken("") {}
+    Configuration() : port(8080), device("/dev/video0"), daemonize(false), lowResWidth(640), lowResHeight(480), highResWidth(0), highResHeight(0), stabPicCount(0), closeDevTimeoutSec(0), securityToken("") {}
 
     String fromJSON(const String & path);
 };
@@ -138,15 +141,18 @@ struct MJPGServer : public V4L2Thread::PictureSink
         "<html><body>"
         "<h1>MJPEG Streamer</h1>"
         "<div>URL list for this server:</div>"
-        "<ul><li><strong>Small resolution mjpeg stream: </strong>%s/mjpg%s</li>"
-        "<li><strong>Full resolution picture: </strong>%s/full_res%s</li></ul>"
+        "<ul><li><strong>Small resolution (%dx%d) mjpeg stream: </strong>%s/mjpg%s</li>"
+        "<li><strong>Full resolution (%dx%d) picture: </strong>%s/full_res%s</li></ul>"
         "<h2>Demo below</h2>"
         "<div><img src='/mjpg%s'></div>"
         "<div><button id='capt'>Full resolution</button></div>"
         "<div><img id='fr'></div>"
         "<script>var button = document.querySelector('#capt'), pic = document.querySelector('#fr');"
         "button.addEventListener('click', function(e) { e.preventDefault(); pic.src = '/full_res?time='+(new Date()).getTime()+'&%s'; });</script>"
-        "</body></html>", (const char*)baseURL, (const char*)tokenURL, (const char*)baseURL, (const char*)tokenURL, (const char*)tokenURL, (const char*)tokenURL + 1);
+        "</body></html>", 
+            v4l2Thread.getLowResWidth(), v4l2Thread.getLowResHeight(), (const char*)baseURL, (const char*)tokenURL, 
+            v4l2Thread.getHighResWidth(), v4l2Thread.getHighResHeight(), (const char*)baseURL, (const char*)tokenURL, 
+            (const char*)tokenURL, (const char*)tokenURL + 1);
 
         return 0;
     }
@@ -222,7 +228,7 @@ struct MJPGServer : public V4L2Thread::PictureSink
     bool stopServer() { return routing.stopServer(); }
 
 
-    String startV4L2Device() { return v4l2Thread.startV4L2Device(config.device, config.lowResWidth, config.lowResHeight); }
+    String startV4L2Device() { return v4l2Thread.startV4L2Device(config.device, config.lowResWidth, config.lowResHeight, config.highResWidth, config.highResHeight, config.stabPicCount); }
 
     // PictureSink interface
 private:
