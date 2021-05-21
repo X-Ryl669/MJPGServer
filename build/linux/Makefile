@@ -95,6 +95,12 @@ install: $(OUTPUT)
 	sudo cp ../../defaultConfig.json /etc/mjpgserver/config.json
 	sudo cp ../../mjpgserver.service /lib/systemd/system/
 
+uninstall:
+	-sudo rm /usr/local/bin/mjpgsrv
+	-sudo rm -r /etc/mjpgserver
+	-sudo rm /lib/systemd/system/mjpgserver.service 
+
+
 clean:
 	@-rm $(OBJ)
 	@-rm $(OBJ:.o=.d)
