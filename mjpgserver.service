@@ -1,0 +1,17 @@
+[Unit]
+Description=MJPEG video streamer
+After=syslog.target
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/usr/local/bin
+ExecStart=/usr/local/bin/mjpgsrv -j /etc/mjpgserver/config.json
+Restart=always
+RestartSec=5
+Environment=
+
+[Install]
+WantedBy=multi-user.target

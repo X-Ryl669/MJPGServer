@@ -89,6 +89,11 @@ ClassPath/%.o: ../../ClassPath/src/%.c
 	@echo ">  Compiling $(notdir $*.cpp)"
 	$(Q)$(CXX) $(CXXFLAGS) $(DFLAGS) $(INCPATH) -c $(addprefix ../../src/,$*.cpp) -o $*.o
 
+install: $(OUTPUT)
+	sudo cp mjpgsrv /usr/local/bin
+	sudo mkdir /etc/mjpgserver
+	sudo cp ../../defaultConfig.json /etc/mjpgserver/config.json
+	sudo cp ../../mjpgserver.service /lib/systemd/system/
 
 clean:
 	@-rm $(OBJ)
