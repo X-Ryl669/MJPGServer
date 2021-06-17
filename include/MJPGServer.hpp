@@ -193,7 +193,7 @@ struct MJPGServer : public V4L2Thread::PictureSink
         size_t clientSize = clients.getSize();
         clients.Append(new ClientSocket(clientSocket));
         // If no client previously, let's create the thread to handle them
-        if (!clientSize && !v4l2Thread.isRunning()) v4l2Thread.createThread();
+        if (!v4l2Thread.isRunning()) v4l2Thread.createThread();
         comm.statusCode = Protocol::HTTP::CapturedSocket; 
         return 0;
     }

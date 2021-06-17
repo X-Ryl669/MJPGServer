@@ -118,6 +118,7 @@ String V4L2Thread::Context::openDevice(const char * path, int preferredVideoWidt
 
     framesToDrop = stabPicCount;
     try {
+        state = Off;
         return switchRes(&format, false);
     } catch (DisconnectedError e) {
         return closeDevice();
@@ -241,7 +242,7 @@ bool V4L2Thread::Context::switchToLowRes()
 
 bool V4L2Thread::Context::startStreaming()
 {
-    if (state != Off) return true;
+    if (state == On || state == Paused) return true;
 
     int type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     int ret = ioctl(VIDIOC_STREAMON, &type);
@@ -291,7 +292,7 @@ bool V4L2Thread::Context::eventLoop()
             break;
         default: break;
         }
-    } else return false;
+    } else if (state == Disconnected) return false;
     return true;
 }
 
