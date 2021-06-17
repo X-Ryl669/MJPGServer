@@ -55,6 +55,7 @@ String Configuration::fromJSON(const String & path)
             if (key == "port")                       port = (unsigned int)val; 
             else if (key == "device")                device = n.unescape((char*)(const char*)content); 
             else if (key == "daemonize")             daemonize = n.type == JSON::Token::True; 
+            else if (key == "monitorDev")            monitorDev = n.type == JSON::Token::True; 
             else if (key == "logLevel")              logLevel = (unsigned int)val; 
             else if (key == "lowResWidth")           lowResWidth = (unsigned int)val; 
             else if (key == "lowResHeight")          lowResHeight = (unsigned int)val; 
@@ -109,7 +110,10 @@ int main(int argc, const char ** argv)
 
     MJPGServer srv;
     error = srv.startV4L2Device();
-    if (error) return log(Error, "%s\n", (const char*)error);
+    if (error) {
+        if (!config.monitorDev) return log(Error, "%s", (const char*)error);
+        log(Warning, "Could not start the V4L2 device with error: %s, retrying in 2s", (const char*)error);
+    }
 
     error = srv.startServer();
     if (error) return log(Error, "%s\n", (const char*)error);

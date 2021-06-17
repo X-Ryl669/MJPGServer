@@ -10,7 +10,7 @@
 
 #define Zero(X) memset(&X, 0, sizeof(X))
 
-int V4L2Thread::Context::ioctl(int method, void *arg) {
+int V4L2Thread::Context::ioctl(int method, void *arg, const bool throwOnDisconnect) {
     
     for (int tries = IOCTLRetry; tries; tries--) {
         int ret = ::ioctl((int)fd, method, arg);
@@ -19,6 +19,10 @@ int V4L2Thread::Context::ioctl(int method, void *arg) {
     };
 
     log(Error, "Failure in IOCTL(%08X): %d:%s", method, errno, strerror(errno));
+    if (errno == ENODEV) { 
+        state = Disconnected;
+        if (throwOnDisconnect) throw DisconnectedError();
+    }
     return -1;
 }
 
@@ -28,7 +32,7 @@ String V4L2Thread::Context::openDevice(const char * path, int preferredVideoWidt
     if (fd == -1) return String::Print("Can't open: %s", path);
 
     Zero(caps);
-    int ret = ioctl(VIDIOC_QUERYCAP, &caps);
+    int ret = ioctl(VIDIOC_QUERYCAP, &caps, false);
     if(ret < 0) return "Can't fetch video device capabilities";
     if(!(caps.capabilities & V4L2_CAP_VIDEO_CAPTURE)) return "Device is not a video capture";
     supportsStream = caps.capabilities & V4L2_CAP_STREAMING;
@@ -84,7 +88,7 @@ String V4L2Thread::Context::openDevice(const char * path, int preferredVideoWidt
     highres.fmt.pix.height = maxHeight;
     highres.fmt.pix.pixelformat = fmtdesc.pixelformat;
     highres.fmt.pix.field = V4L2_FIELD_ANY;
-    ret = ioctl(VIDIOC_S_FMT, &highres);
+    ret = ioctl(VIDIOC_S_FMT, &highres, false);
     if(ret < 0) return "Can't set format to the maximum picture size";
 
 
@@ -95,12 +99,12 @@ String V4L2Thread::Context::openDevice(const char * path, int preferredVideoWidt
     format.fmt.pix.height = preferredVideoHeight;
     format.fmt.pix.pixelformat = V4L2_PIX_FMT_MJPEG;
     format.fmt.pix.field = V4L2_FIELD_ANY;
-    ret = ioctl(VIDIOC_S_FMT, &format);
+    ret = ioctl(VIDIOC_S_FMT, &format, false);
     if(ret < 0) 
     {
         // Try JPEG format as well before giving up
         format.fmt.pix.pixelformat = V4L2_PIX_FMT_JPEG;
-        ret = ioctl(VIDIOC_S_FMT, &format);
+        ret = ioctl(VIDIOC_S_FMT, &format, false);
         if (ret < 0) return String::Print("Can't set JPEG or MJPEG format (w:%d, h:%d)", preferredVideoWidth, preferredVideoHeight);
     }
 
@@ -113,7 +117,11 @@ String V4L2Thread::Context::openDevice(const char * path, int preferredVideoWidt
                                 (format.fmt.pix.pixelformat & 0x80000000U) ? " - BigEndian" : " - LittleEndian");
 
     framesToDrop = stabPicCount;
-    return switchRes(&format, false);
+    try {
+        return switchRes(&format, false);
+    } catch (DisconnectedError e) {
+        return closeDevice();
+    }
 }
 
 String V4L2Thread::Context::closeDevice()
@@ -137,16 +145,21 @@ String V4L2Thread::Context::closeDevice()
 
 String V4L2Thread::Context::unmapBuffers()
 {
-    // Need to find the buffer size to unmap it
-    Zero(buffer);
-    buffer.index = 0;
-    buffer.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    buffer.memory = V4L2_MEMORY_MMAP;
-    if (ioctl(VIDIOC_QUERYBUF, &buffer) < 0) return String::Print("Can't query buffer %d", 0);
+    if (state != Disconnected) {
+        // Need to find the buffer size to unmap it
+        Zero(buffer);
+        buffer.index = 0;
+        buffer.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        buffer.memory = V4L2_MEMORY_MMAP;
+        if (ioctl(VIDIOC_QUERYBUF, &buffer) < 0) return String::Print("Can't query buffer %d", 0);
+    }
 
     for (int i = 0; i < BuffersCount; i++) {
         if (::munmap(mem[i], buffer.length)) return String::Print("Can't unmap buffer %d", i);
     }
+
+    if (state == Disconnected) return "Device is disconnected";
+
 
     Zero(requestBuffers);
     requestBuffers.count = 0;
@@ -242,7 +255,7 @@ bool V4L2Thread::Context::startStreaming()
 
 bool V4L2Thread::Context::stopStreaming()
 {
-    if (state == Off) return true;
+    if (state == Off || state == Disconnected) return true;
 
     int type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     int ret = ioctl(VIDIOC_STREAMOFF, &type);
@@ -278,7 +291,7 @@ bool V4L2Thread::Context::eventLoop()
             break;
         default: break;
         }
-    }
+    } else return false;
     return true;
 }
 
@@ -411,39 +424,45 @@ bool V4L2Thread::fetchFullRes()
 
 uint32 V4L2Thread::runThread()
 {
-    // Don't continue if we are not started yet
-    if (context.fd == -1) return 0;
+    try {
+        // Don't continue if we are not started yet
+        if (context.fd == -1) return 0;
 
-    // Ok, let's start the stream now
-    if (!context.startStreaming()) return 0; // Failed.
+        // Ok, let's start the stream now
+        if (!context.startStreaming()) return 0; // Failed.
 
-    while (isRunning())
-    {
-        // Fetch pictures from the source now
-        if (!context.eventLoop()) return 0;
+        while (isRunning())
+        {
+            // Fetch pictures from the source now
+            if (!context.eventLoop()) return 0;
 
-        // Check if capture a full frame is requested
-        if (captureFullRes.Wait(Threading::TimeOut::InstantCheck)) {
-            // It is, let's re-initialize the camera
-            bool success = fetchFullRes();
-            // Don't block the main thread here
-            captureDone.Set();
-            // Upon any failure, we can't recover here
-            if (!success) return 0;
+            // Check if capture a full frame is requested
+            if (captureFullRes.Wait(Threading::TimeOut::InstantCheck)) {
+                // It is, let's re-initialize the camera
+                bool success = fetchFullRes();
+                // Don't block the main thread here
+                captureDone.Set();
+                // Upon any failure, we can't recover here
+                if (!success) return 0;
+            }
+
+            // Fetch a frame
+            uint8 * ptr = 0; size_t size = 0;
+            if (!context.fetchFrame(ptr, size)) return 0;
+
+            // Skip very small or corrupt picture here
+            if (size > 200) {
+                // Call the sink now
+                if (!sink.pictureReceived(ptr, size)) return 0;
+            }
+
+            // Tell the context, we are done with the frame now
+            if (!context.returnFrame()) return 0;
         }
-
-        // Fetch a frame
-        uint8 * ptr = 0; size_t size = 0;
-        if (!context.fetchFrame(ptr, size)) return 0;
-
-        // Skip very small or corrupt picture here
-        if (size > 200) {
-            // Call the sink now
-            if (!sink.pictureReceived(ptr, size)) return 0;
-        }
-
-        // Tell the context, we are done with the frame now
-        if (!context.returnFrame()) return 0;
+    } catch (DisconnectedError e) {
+        // Make it clear it'll disconnect cleanly (this should free any descriptor on the device allowing the device to 
+        // re-use the same name when it reappears)
+        log(Error, "Device disconnected: %s", (const char*)context.closeDevice()); 
     }
     return 0;
 }

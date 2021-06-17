@@ -28,6 +28,7 @@ struct Configuration
     unsigned int    port; 
     String          device;
     bool            daemonize;
+    bool            monitorDev;
     unsigned int    lowResWidth;
     unsigned int    lowResHeight;
     unsigned int    highResWidth;
@@ -36,7 +37,7 @@ struct Configuration
     unsigned int    closeDevTimeoutSec;
     String          securityToken;           
       
-    Configuration() : port(8080), device("/dev/video0"), daemonize(false), lowResWidth(640), lowResHeight(480), highResWidth(0), highResHeight(0), stabPicCount(0), closeDevTimeoutSec(0), securityToken("") {}
+    Configuration() : port(8080), device("/dev/video0"), daemonize(false), monitorDev(false), lowResWidth(640), lowResHeight(480), highResWidth(0), highResHeight(0), stabPicCount(0), closeDevTimeoutSec(0), securityToken("") {}
 
     String fromJSON(const String & path);
 };
@@ -50,16 +51,18 @@ struct MJPGServer : public V4L2Thread::PictureSink
     struct ClientSocket
     {
         Socket * clientSocket;
-        bool     throttle;
+        int     throttle;
 
         bool pictureReceived(const uint8 * data, const size_t length) {
+            const int SkipPictureCount = 2;
             if (!clientSocket) return false;
             // If the socket is not able to keep up with the bandwidth, just skip the picture.
-            if (throttle) {
+            if (throttle > 0) {
                 // Is the socket ready to receive more data ?
-                throttle = !clientSocket->select(false, true, 0);
+                throttle--; // Let's skip the immediate next picture anyway to let network buffer's recover the stream
+                if (!throttle) throttle = !clientSocket->select(false, true, 0);
             }
-            if (throttle) return true;
+            if (throttle > 0) return true;
 
             // Need to send a multipart boundary here
             String boundary = String::Print("\r\n--boundary\r\nContent-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n", length);
@@ -71,7 +74,7 @@ struct MJPGServer : public V4L2Thread::PictureSink
                     delete0(clientSocket);
                     return false;
                 }
-                throttle = true; 
+                throttle = SkipPictureCount; 
                 // Retry, while waiting here
                 sent = clientSocket->sendReliably((const char*)boundary + sent, boundary.getLength() - sent);
                 if (sent <= 0) {
@@ -85,7 +88,7 @@ struct MJPGServer : public V4L2Thread::PictureSink
             sent = clientSocket->sendReliably((const char*)data, length);
             if (sent != length) {
                 // Bad luck here, the socket is struck
-                if (sent >= 0) throttle = true; // Timeout, let's skip the next picture again
+                if (sent >= 0) throttle = SkipPictureCount; // Timeout, let's skip the next picture again
                 else {
                     // Client disconnected or can't accept more data, let's drop it
                     delete0(clientSocket);
@@ -215,12 +218,25 @@ struct MJPGServer : public V4L2Thread::PictureSink
         return "";
     }
     bool loop() 
-    { 
-        if (config.closeDevTimeoutSec && v4l2Thread.isOpened() && (uint32)time(NULL) > (lastSeenTime + config.closeDevTimeoutSec)) 
-        {
-            log(Info, "Closing the device after %us of inactivity", config.closeDevTimeoutSec);
-            String ret = v4l2Thread.stopV4L2Device();
-            if (ret) log(Error, (const char*)ret);   
+    {
+        time_t currentTime = {};
+        if (config.closeDevTimeoutSec && v4l2Thread.isOpened()) {
+            currentTime = time(NULL);
+            if ((uint32)currentTime > (lastSeenTime + config.closeDevTimeoutSec)) {
+                log(Info, "Closing the device after %us of inactivity", config.closeDevTimeoutSec);
+                String ret = v4l2Thread.stopV4L2Device();
+                if (ret) log(Error, (const char*)ret);
+            }
+        }
+        if (!v4l2Thread.isDevicePresent()) {
+            static time_t lastCheckedTime = 0;
+            if (!currentTime) currentTime = time(NULL);
+            if (config.monitorDev && currentTime > (lastCheckedTime + 2) && File::Info(config.device).doesExist()) {
+                log(Info, "Device seems to be present, let's start again");
+                String ret = v4l2Thread.startV4L2Device(config.device, config.lowResWidth, config.lowResHeight, config.highResWidth, config.highResHeight, config.stabPicCount);
+                if (ret) log(Error, (const char*)ret);
+            }
+            lastCheckedTime = currentTime;
         }
         return routing.loop(); 
     }

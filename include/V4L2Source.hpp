@@ -26,9 +26,10 @@ struct V4L2Thread : public Threading::Thread
 public:
     /** The streaming state */
     enum State {
-        Off     = 0,
-        On      = 1,
-        Paused  = 2,
+        Off             = 0,
+        On              = 1,
+        Paused          = 2,
+        Disconnected    = 3,
     };
 
     /** Some constants */
@@ -36,6 +37,9 @@ public:
         IOCTLRetry      = 4,
         BuffersCount    = 3,
     };
+
+    /** Exception thrown upon unexpected device disconnection */
+    struct DisconnectedError {};
 
     /** The V4L2 context object */
     struct Context
@@ -61,7 +65,7 @@ public:
         // Interface
     public:
         // Low level IOCTL that's retrying upon recoverable errors
-        int ioctl        (int method, void *arg);
+        int ioctl        (int method, void *arg, const bool throwOnDisconnect = true);
 
  //       int getControl   (int control);
  //       int setControl   (int control, int value, int plugin_number, globals *pglobal);
@@ -99,7 +103,7 @@ public:
         String  unmapBuffers();
 
     public:
-        Context() : fd(-1), supportsStream(false), state(Off), framesToDrop(0) {}
+        Context() : fd(-1), supportsStream(false), state(Disconnected), framesToDrop(0) {}
     };
 
     /** The receiving interface */
@@ -138,6 +142,7 @@ public:
     }
  
     bool isOpened() const { return context.fd != -1; }
+    bool isDevicePresent() const { return context.state != Disconnected; }
 
     int getLowResWidth()  const { return context.format.fmt.pix.width; }
     int getLowResHeight() const { return context.format.fmt.pix.height; }
