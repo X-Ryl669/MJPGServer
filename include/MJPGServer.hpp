@@ -51,10 +51,16 @@ struct MJPGServer : public V4L2Thread::PictureSink
     struct ClientSocket
     {
         Socket * clientSocket;
+        String  address;
         int     throttle;
 
-        bool pictureReceived(const uint8 * data, const size_t length) {
+        void throttleClient() {
             const int SkipPictureCount = 2;
+	    if (throttle < 0) log(Info, "Throttling client %s", (const char*)address);
+            throttle = SkipPictureCount;
+        }
+
+        bool pictureReceived(const uint8 * data, const size_t length) {
             if (!clientSocket) return false;
             // If the socket is not able to keep up with the bandwidth, just skip the picture.
             if (throttle > 0) {
@@ -71,14 +77,16 @@ struct MJPGServer : public V4L2Thread::PictureSink
             if (sent != boundary.getLength()) { 
                 if (sent <= 0) { 
                     // Client disconnected
+		    log(Info, "Client %s disconnected (boundary): %d", (const char*)address, sent);
                     delete0(clientSocket);
                     return false;
                 }
-                throttle = SkipPictureCount; 
+                throttleClient();
                 // Retry, while waiting here
                 sent = clientSocket->sendReliably((const char*)boundary + sent, boundary.getLength() - sent);
                 if (sent <= 0) {
                     // Client disconnected or can't accept more data, let's drop it
+		    log(Info, "Client %s disconnected (boundary): %d", (const char*)address, sent);
                     delete0(clientSocket);
                     return false;
                 }
@@ -88,9 +96,10 @@ struct MJPGServer : public V4L2Thread::PictureSink
             sent = clientSocket->sendReliably((const char*)data, length);
             if (sent != length) {
                 // Bad luck here, the socket is struck
-                if (sent >= 0) throttle = SkipPictureCount; // Timeout, let's skip the next picture again
+                if (sent >= 0 || clientSocket->getLastError() == Socket::InProgress) throttleClient(); // Timeout, let's skip the next picture again
                 else {
                     // Client disconnected or can't accept more data, let's drop it
+		    log(Info, "Client %s disconnected (data): %d", (const char*)address, sent);
                     delete0(clientSocket);
                     return false;
                 }
@@ -98,7 +107,7 @@ struct MJPGServer : public V4L2Thread::PictureSink
             return true;
         }
 
-        ClientSocket(Socket * socket) : clientSocket(socket), throttle(false) {}
+        ClientSocket(Socket * socket) : clientSocket(socket), address(socket->getPeerName() ? (const char*)socket->getPeerName()->asText(): ""), throttle(-1) {}
         ~ClientSocket() { delete0(clientSocket); }
     };
 
