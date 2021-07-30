@@ -561,6 +561,20 @@ bool Thread::destroyThread(const bool & rcbDontWait) volatile
         // Undo the signal handling here
         pthread_setspecific(threadThisKey, NULL);
         if (rcbDontWait) pthread_cancel(thread);
+  #if defined(_LINUX)
+        // On Linux, we can check if a thread will actuallly join by timing out if it does not
+        struct timespec ts;
+        if (clock_gettime(CLOCK_REALTIME, &ts) != -1)
+        {
+            ts.tv_sec += 60; // 1mn for a thread to stop by itself should be enough, I think
+
+            if (pthread_timedjoin_np(thread, NULL, &ts) != 0)
+            {
+                pthread_cancel(thread);
+                pthread_join(thread, &ret);
+            }
+        } else
+  #endif
         pthread_join(thread, &ret);
 
         memset((void*)&thread, 0, sizeof(thread));
