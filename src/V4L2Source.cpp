@@ -10,6 +10,7 @@
 #include <sys/ioctl.h>
 
 #define Zero(X) memset(&X, 0, sizeof(X))
+#define DQBUFTimeoutMs 5000
 
 bool V4L2Thread::Context::setBlockingState(bool blocking)
 {
@@ -30,7 +31,7 @@ int V4L2Thread::Context::ioctl(int method, void *arg, const bool throwOnDisconne
         }
 
         // Wait for DQBUF availability
-        if (!fd.isReadPossible(200)) return -1;
+        if (!fd.isReadPossible(DQBUFTimeoutMs)) return -1;
 
         if (!setBlockingState(true)) {
             state = Disconnected;
