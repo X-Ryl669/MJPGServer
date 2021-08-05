@@ -364,7 +364,10 @@ String V4L2Thread::captureFullResPicture(Utils::MemoryBlock & block)
 
     // Else tell the thread to do it
     captureFullRes.Set();
-    captureDone.Wait(Threading::TimeOut::Infinite);
+    if (!captureDone.Wait(30000)) {
+        fullResPic = 0;
+        return "ERROR: Capture thread not answering";
+    }
     fullResPic = 0;
     return ""; // Done
 }
