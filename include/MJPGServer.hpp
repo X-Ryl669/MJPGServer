@@ -34,10 +34,11 @@ struct Configuration
     unsigned int    highResWidth;
     unsigned int    highResHeight;
     unsigned int    stabPicCount;
+    unsigned int    maxFPS;
     unsigned int    closeDevTimeoutSec;
     String          securityToken;           
       
-    Configuration() : port(8080), device("/dev/video0"), daemonize(false), monitorDev(false), lowResWidth(640), lowResHeight(480), highResWidth(0), highResHeight(0), stabPicCount(0), closeDevTimeoutSec(0), securityToken("") {}
+    Configuration() : port(8080), device("/dev/video0"), daemonize(false), monitorDev(false), lowResWidth(640), lowResHeight(480), highResWidth(0), highResHeight(0), stabPicCount(0), maxFPS(0), closeDevTimeoutSec(0), securityToken("") {}
 
     String fromJSON(const String & path);
 };
@@ -54,9 +55,10 @@ struct MJPGServer : public V4L2Thread::PictureSink
         String  address;
         int     throttle;
 
-        void throttleClient() {
+        void throttleClient() 
+        {
             const int SkipPictureCount = 2;
-	    if (throttle < 0) log(Info, "Throttling client %s", (const char*)address);
+            if (throttle < 0) log(Info, "Throttling client %s", (const char*)address);
             throttle = SkipPictureCount;
         }
 
@@ -77,7 +79,7 @@ struct MJPGServer : public V4L2Thread::PictureSink
             if (sent != boundary.getLength()) { 
                 if (sent <= 0) { 
                     // Client disconnected
-		    log(Info, "Client %s disconnected (boundary): %d", (const char*)address, sent);
+                    log(Info, "Client %s disconnected (boundary): %d", (const char*)address, sent);
                     delete0(clientSocket);
                     return false;
                 }
@@ -86,7 +88,7 @@ struct MJPGServer : public V4L2Thread::PictureSink
                 sent = clientSocket->sendReliably((const char*)boundary + sent, boundary.getLength() - sent);
                 if (sent <= 0) {
                     // Client disconnected or can't accept more data, let's drop it
-		    log(Info, "Client %s disconnected (boundary): %d", (const char*)address, sent);
+                    log(Info, "Client %s disconnected (boundary): %d", (const char*)address, sent);
                     delete0(clientSocket);
                     return false;
                 }
@@ -99,7 +101,7 @@ struct MJPGServer : public V4L2Thread::PictureSink
                 if (sent >= 0 || clientSocket->getLastError() == Socket::InProgress) throttleClient(); // Timeout, let's skip the next picture again
                 else {
                     // Client disconnected or can't accept more data, let's drop it
-		    log(Info, "Client %s disconnected (data): %d", (const char*)address, sent);
+                    log(Info, "Client %s disconnected (data): %d", (const char*)address, sent);
                     delete0(clientSocket);
                     return false;
                 }
@@ -253,7 +255,12 @@ struct MJPGServer : public V4L2Thread::PictureSink
     bool stopServer() { return routing.stopServer(); }
 
 
-    String startV4L2Device() { return v4l2Thread.startV4L2Device(config.device, config.lowResWidth, config.lowResHeight, config.highResWidth, config.highResHeight, config.stabPicCount); }
+    String startV4L2Device() { 
+        return v4l2Thread.startV4L2Device(config.device, 
+                                            config.lowResWidth, config.lowResHeight, 
+                                            config.highResWidth, config.highResHeight, 
+                                            config.stabPicCount, config.maxFPS); 
+    }
 
     // PictureSink interface
 private:

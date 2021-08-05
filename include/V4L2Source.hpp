@@ -61,11 +61,13 @@ public:
         State state;
         /** The number of pictures to drop while switching resolution */
         unsigned framesToDrop;
+        /** The minimum frame duration in milliseconds */
+        double minFrameDuration;
 
         // Interface
     public:
         // Low level IOCTL that's retrying upon recoverable errors
-        int ioctl        (int method, void *arg, const bool throwOnDisconnect = true);
+        int ioctl        (int method, void *arg, const bool throwOnDisconnect = true, const bool interruptible = false);
 
  //       int getControl   (int control);
  //       int setControl   (int control, int value, int plugin_number, globals *pglobal);
@@ -75,9 +77,11 @@ public:
  //       int resetControl (int control);
 
         // Open the device and extract all useful informations
-        String  openDevice(const char * path, int preferredVideoWidth = 640, int preferredVideoHeight = 480, int picWidth = 0, int picHeight = 0, unsigned stabPicCount = 0);
+        String  openDevice(const char * path, int preferredVideoWidth = 640, int preferredVideoHeight = 480, int picWidth = 0, int picHeight = 0, unsigned stabPicCount = 0, double minFrameDuration = 0);
         // Close the device (used to release memory and the file descriptor so device can be unplugged)
         String  closeDevice();
+        // Set file descriptor as blocking/non-blocking 
+        bool    setBlockingState(bool blocking);
         // Start the stream
         bool    startStreaming();
         // Stop the stream
@@ -129,8 +133,9 @@ public:
         destroyThread();
     }
 
-    String startV4L2Device(const char * path, int preferredVideoWidth = 640, int preferredVideoHeight = 480, int picWidth = 0, int picHeight = 0, unsigned stabPicCount = 0) {
-        return context.openDevice(path, preferredVideoWidth, preferredVideoHeight, picWidth, picHeight, stabPicCount);
+    String startV4L2Device(const char * path, int preferredVideoWidth = 640, int preferredVideoHeight = 480, int picWidth = 0, int picHeight = 0, unsigned stabPicCount = 0, unsigned maxFPS = 0) {
+        double minFrameDuration = maxFPS ? 1.0 / maxFPS : 0.0;
+        return context.openDevice(path, preferredVideoWidth, preferredVideoHeight, picWidth, picHeight, stabPicCount, minFrameDuration);
     }
 
     String captureFullResPicture(Utils::MemoryBlock & block);

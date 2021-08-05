@@ -62,6 +62,7 @@ String Configuration::fromJSON(const String & path)
             else if (key == "highResWidth")          highResWidth = (unsigned int)val; 
             else if (key == "highResHeight")         highResHeight = (unsigned int)val; 
             else if (key == "stabPicCount")          stabPicCount = (unsigned int)val; 
+            else if (key == "maxFPS")                maxFPS = (unsigned int)val; 
             else if (key == "closeDeviceTimeoutSec") closeDevTimeoutSec = (unsigned int)val; 
             else if (key == "securityToken")         securityToken = n.unescape((char*)(const char*)content); 
             else log(Warning, "Ignoring unsupported key: %s", (const char*)key);

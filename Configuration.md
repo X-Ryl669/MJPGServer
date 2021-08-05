@@ -17,6 +17,7 @@ The available keys are the following:
 | lowResHeight          | unsigned integer in pixels          | The column size of the preview (low resolution) video stream  | 480           |
 | highResWidth          | unsigned integer in pixels          | The row size of the full resolution picture                   | max detected  |
 | highResHeight         | unsigned integer in pixels          | The column size of the full resolution picture                | max detected  |
+| maxFPS                | unsigned integer in frames per sec  | The maximum number of frame per seconds in low resolution     | 0             | 
 | stabPicCount          | unsigned integer in frames          | The number of unstable frames to drop when switching res      | 0             | 
 | securityToken         | string                              | If given, access to the stream will require this secret token | *empty*       |
 

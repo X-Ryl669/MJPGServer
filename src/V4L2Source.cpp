@@ -4,19 +4,49 @@
 
 // We need our declaration
 #include "../include/V4L2Source.hpp"
+#include "Time/Time.hpp"
 
 #include <sys/mman.h>
 #include <sys/ioctl.h>
 
 #define Zero(X) memset(&X, 0, sizeof(X))
 
-int V4L2Thread::Context::ioctl(int method, void *arg, const bool throwOnDisconnect) {
-    
-    for (int tries = IOCTLRetry; tries; tries--) {
+bool V4L2Thread::Context::setBlockingState(bool blocking)
+{
+    int socketFlags = fcntl((int)fd, F_GETFL, 0);
+    if (socketFlags == -1) return false;
+    if (fcntl((int)fd, F_SETFL, (socketFlags & ~O_NONBLOCK) | (blocking ? O_NONBLOCK : 0)) != 0) return false;
+    return true;
+}
+
+
+int V4L2Thread::Context::ioctl(int method, void *arg, const bool throwOnDisconnect, const bool interruptible) 
+{
+    if (interruptible) {
+        if (!setBlockingState(false)) {
+            state = Disconnected;
+            if (throwOnDisconnect) throw DisconnectedError();
+            return -1;
+        }
+
+        // Wait for DQBUF availability
+        if (!fd.isReadPossible(200)) return -1;
+
+        if (!setBlockingState(true)) {
+            state = Disconnected;
+            if (throwOnDisconnect) throw DisconnectedError();
+            return -1;
+        }
+        
         int ret = ::ioctl((int)fd, method, arg);
         if (!ret) return 0;
-        if (errno != EINTR && errno != EAGAIN && errno != ETIMEDOUT) break;
-    };
+    } else {
+        for (int tries = IOCTLRetry; tries; tries--) {
+            int ret = ::ioctl((int)fd, method, arg);
+            if (!ret) return 0;
+            if (errno != EINTR && errno != EAGAIN && errno != ETIMEDOUT) break;
+        }
+    }
 
     log(Error, "Failure in IOCTL(%08X): %d:%s", method, errno, strerror(errno));
     if (errno == ENODEV) { 
@@ -26,7 +56,7 @@ int V4L2Thread::Context::ioctl(int method, void *arg, const bool throwOnDisconne
     return -1;
 }
 
-String V4L2Thread::Context::openDevice(const char * path, int preferredVideoWidth, int preferredVideoHeight, int picWidth, int picHeight, unsigned   stabPicCount)
+String V4L2Thread::Context::openDevice(const char * path, int preferredVideoWidth, int preferredVideoHeight, int picWidth, int picHeight, unsigned stabPicCount, double minFrameDurationInS)
 {
     fd.Mutate(::open(path, O_RDWR));
     if (fd == -1) return String::Print("Can't open: %s", path);
@@ -117,6 +147,7 @@ String V4L2Thread::Context::openDevice(const char * path, int preferredVideoWidt
                                 (format.fmt.pix.pixelformat & 0x80000000U) ? " - BigEndian" : " - LittleEndian");
 
     framesToDrop = stabPicCount;
+    minFrameDuration = minFrameDurationInS;
     try {
         state = Off;
         return switchRes(&format, false);
@@ -302,7 +333,7 @@ bool V4L2Thread::Context::fetchFrame(uint8 * & ptr, size_t & size)
     buffer.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     buffer.memory = V4L2_MEMORY_MMAP;
 
-    int ret = ioctl(VIDIOC_DQBUF, &buffer);
+    int ret = ioctl(VIDIOC_DQBUF, &buffer, true, true);
     if(ret < 0) return false;
 
     ptr = (uint8*)mem[buffer.index];
@@ -432,6 +463,8 @@ uint32 V4L2Thread::runThread()
         // Ok, let's start the stream now
         if (!context.startStreaming()) return 0; // Failed.
 
+        double lastTime = 0;
+
         while (isRunning())
         {
             // Fetch pictures from the source now
@@ -445,6 +478,14 @@ uint32 V4L2Thread::runThread()
                 captureDone.Set();
                 // Upon any failure, we can't recover here
                 if (!success) return 0;
+            }
+
+            // Check if we need to throttle the capture a bit not to overcome the desired FPS
+            if (context.minFrameDuration != 0) {
+                double current = Time::getPreciseTime();
+                if (current - lastTime < context.minFrameDuration)
+                    Sleep((current - lastTime) * 1000);
+                lastTime = current;
             }
 
             // Fetch a frame
